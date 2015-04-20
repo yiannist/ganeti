@@ -523,7 +523,8 @@ def RemoveInstance(opts, args):
 
   op = opcodes.OpInstanceRemove(instance_name=instance_name,
                                 ignore_failures=opts.ignore_failures,
-                                shutdown_timeout=opts.shutdown_timeout)
+                                shutdown_timeout=opts.shutdown_timeout,
+                                keep_disks=opts.keep_disks)
   SubmitOrSend(op, opts, cl=cl)
   return 0
 
@@ -1753,7 +1754,7 @@ commands = {
   "remove": (
     RemoveInstance, ARGS_ONE_INSTANCE,
     [FORCE_OPT, SHUTDOWN_TIMEOUT_OPT, IGNORE_FAILURES_OPT] + SUBMIT_OPTS
-    + [DRY_RUN_OPT, PRIORITY_OPT],
+    + [DRY_RUN_OPT, PRIORITY_OPT, KEEPDISKS_OPT],
     "[-f] <instance-name>", "Shuts down the instance and removes it"),
   "rename": (
     RenameInstance,
@@ -1777,7 +1778,7 @@ commands = {
      OFFLINE_INST_OPT, ONLINE_INST_OPT, IGNORE_IPOLICY_OPT, RUNTIME_MEM_OPT,
      NOCONFLICTSCHECK_OPT, NEW_PRIMARY_OPT, HOTPLUG_OPT,
      HOTPLUG_IF_POSSIBLE_OPT, INSTANCE_COMMUNICATION_OPT,
-     EXT_PARAMS_OPT, FILESTORE_DRIVER_OPT, FILESTORE_DIR_OPT,
+     EXT_PARAMS_OPT, FILESTORE_DRIVER_OPT, FILESTORE_DIR_OPT, KEEPDISKS_OPT,
      CLEAR_OSPARAMS_OPT, CLEAR_OSPARAMS_PRIVATE_OPT,
      REMOVE_OSPARAMS_OPT, REMOVE_OSPARAMS_PRIVATE_OPT],
      "<instance-name>", "Alters the parameters of an instance"),

@@ -533,6 +533,7 @@ $(genOpCode "OpCode"
      , pInstanceUuid
      , pShutdownTimeout
      , pIgnoreFailures
+     , pKeepDisks
      ],
      "instance_name")
   , ("OpInstanceRename",
@@ -720,6 +721,7 @@ $(genOpCode "OpCode"
      , pHotplug
      , pHotplugIfPossible
      , pOptInstanceCommunication
+     , pKeepDisks
      ],
      "instance_name")
   , ("OpInstanceGrowDisk",
