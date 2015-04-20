@@ -379,6 +379,11 @@ def _UpgradeSerializedRuntime(serialized_runtime):
     # We have a (Disk, link, uri) tuple
     update_hvinfo(disk_entry[0], constants.HOTPLUG_TARGET_DISK)
 
+  for disk_entry in serialized_disks:
+    # Add empty uri entry
+    if len(disk_entry) < 3:
+      disk_entry += ("", )
+
   return kvm_cmd, serialized_nics, hvparams, serialized_disks
 
 
