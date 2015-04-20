@@ -1217,6 +1217,11 @@ class KVMHypervisor(hv_base.BaseHypervisor):
 
       drive_uri = _GetDriveURI(cfdev, link_name, uri)
 
+      # For ext we allow overriding disk_cache hypervisor params per disk
+      cache = cfdev.params.get("cache", None)
+      if cache:
+        cache_val = ",cache=%s" % cache
+
       drive_val = "file=%s,format=raw%s%s%s%s%s%s%s" % \
                   (drive_uri, if_val, boot_val, cache_val, aio_val, discard_val,
                    bps_val, iops_val)
