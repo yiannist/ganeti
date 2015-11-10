@@ -1,3 +1,16 @@
+snf-ganeti (2.16.0+arr-1) wheezy; urgency=low
+
+  * Official Ganeti 2.16 plus custom patches:
+    + Support ifdown script for the KVM hypervisor
+    + Revert "Fix query mechanism wrt networks and vlans"
+    + LUInstanceSnapshot for the EXT disk template
+    + Change base64 encoded networks to 01 bitarrays via cfgupgrade
+    + Upgrade runtime files properly (add uri, remove physical_id)
+    + Add --keep-disks option
+    + Pass disk geometry in KVM command
+
+ -- Dimitris Aragiorgis <dimitris.aragiorgis@gmail.com>  Tue, 10 Nov 2015 17:01:00 +0300
+
 ganeti (2.15.1-1) unstable; urgency=medium
 
   * New upstream bugfix release: 
