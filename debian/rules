@@ -4,7 +4,9 @@
 #export DH_VERBOSE=1
 
 # Debian package major.minor version
-VER = $(shell dpkg-parsechangelog -Sversion | sed -r 's/([0-9]+\.[0-9]+)(\..*)/\1/')
+# The -S option is availabe in dpkg-dev/jessie
+#VER = $(shell dpkg-parsechangelog -Sversion | sed -r 's/([0-9]+\.[0-9]+)(\..*)/\1/')
+VER = $(shell dpkg-parsechangelog | grep ^Version | sed -r 's/Version: ([0-9]+\.[0-9]+)(\..*)/\1/')
 
 # Closest upstream VCS tag, used to generate debian/control and DH files
 VCS_VER = $(shell git describe --abbrev=0 --match="v*" 2>/dev/null | sed -r 's/v([0-9]+\.[0-9]+)(\..*)/\1/')
@@ -41,7 +43,8 @@ override_dh_autoreconf:
 	dh_autoreconf $(CURDIR)/autogen.sh
 
 override_dh_auto_configure:
-	dpkg-parsechangelog -Sversion > vcs-version
+	# dpkg-parsechangelog -Sversion > vcs-version
+	dpkg-parsechangelog | grep ^Version | sed -r 's/Version: //' > vcs-version
 	./configure \
 	  --prefix=/usr \
 	  --localstatedir=/var \
