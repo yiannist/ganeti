@@ -1,4 +1,4 @@
-snf-ganeti (2.16.0+arr-1) wheezy; urgency=low
+snf-ganeti (2.16.0~rc1+arr-1) unstable; urgency=low
 
   * Official Ganeti 2.16 plus custom patches:
     + Support ifdown script for the KVM hypervisor
