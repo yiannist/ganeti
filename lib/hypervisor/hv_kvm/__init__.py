@@ -79,7 +79,7 @@ from ganeti.hypervisor.hv_kvm.monitor import QmpConnection, QmpMessage, \
 from ganeti.hypervisor.hv_kvm.netdev import OpenTap
 
 
-_KVM_NETWORK_SCRIPT = pathutils.CONF_DIR + "/kvm-vif-bridge"
+_KVM_NETWORK_SCRIPT = pathutils.CONF_DIR + "/kvm-ifup-custom"
 _KVM_START_PAUSED_FLAG = "-S"
 
 #: SPICE parameters which depend on L{constants.HV_KVM_SPICE_BIND}
@@ -378,6 +378,11 @@ def _UpgradeSerializedRuntime(serialized_runtime):
   for disk_entry in serialized_disks:
     # We have a (Disk, link, uri) tuple
     update_hvinfo(disk_entry[0], constants.HOTPLUG_TARGET_DISK)
+
+  for disk_entry in serialized_disks:
+    # Add empty uri entry
+    if len(disk_entry) < 3:
+      disk_entry += ("", )
 
   return kvm_cmd, serialized_nics, hvparams, serialized_disks
 
@@ -799,11 +804,40 @@ class KVMHypervisor(hv_base.BaseHypervisor):
     return utils.PathJoin(cls._NICS_DIR, instance_name)
 
   @classmethod
-  def _InstanceNICFile(cls, instance_name, seq):
+  def _InstanceNICFile(cls, instance_name, seq_or_uuid):
     """Returns the name of the file containing the tap device for a given NIC
 
     """
-    return utils.PathJoin(cls._InstanceNICDir(instance_name), str(seq))
+    return utils.PathJoin(cls._InstanceNICDir(instance_name), str(seq_or_uuid))
+
+  @classmethod
+  def _GetInstanceNICTap(cls, instance_name, nic):
+    """Returns the tap for the corresponding nic
+
+    Search for tap file named after NIC's uuid.
+    For old instances without uuid indexed tap files returns nothing.
+
+    """
+    try:
+      return utils.ReadFile(cls._InstanceNICFile(instance_name, nic.uuid))
+    except EnvironmentError:
+      pass
+
+  @classmethod
+  def _WriteInstanceNICFiles(cls, instance_name, seq, nic, tap):
+    """Write tap name to both instance NIC files
+
+    """
+    for ident in [seq, nic.uuid]:
+      utils.WriteFile(cls._InstanceNICFile(instance_name, ident), data=tap)
+
+  @classmethod
+  def _RemoveInstanceNICFiles(cls, instance_name, seq, nic):
+    """Write tap name to both instance NIC files
+
+    """
+    for ident in [seq, nic.uuid]:
+      utils.RemoveFile(cls._InstanceNICFile(instance_name, ident))
 
   @classmethod
   def _InstanceKeymapFile(cls, instance_name):
@@ -832,6 +866,8 @@ class KVMHypervisor(hv_base.BaseHypervisor):
     """Removes an instance's rutime sockets/files/dirs.
 
     """
+    # This takes info from NICDir and RuntimeFile
+    cls._UnconfigureInstanceNICs(instance_name)
     utils.RemoveFile(pidfile)
     utils.RemoveFile(cls._InstanceMonitor(instance_name))
     utils.RemoveFile(cls._InstanceSerial(instance_name))
@@ -884,6 +920,29 @@ class KVMHypervisor(hv_base.BaseHypervisor):
 
     """
     hv_base.ConfigureNIC([pathutils.KVM_IFUP, tap], instance, seq, nic, tap)
+
+  @classmethod
+  def _UnconfigureNic(cls, instance_name, nic, only_local=True):
+    """Run ifdown script for a specific NIC
+
+    This is executed during instance cleanup and NIC hot-unplug
+
+    @param instance_name: instance we're acting on
+    @type instance_name: string
+    @param nic: nic we're acting on
+    @type nic: nic object
+    @param only_local: whether ifdown script should reset global conf (dns)
+    @type only_local: boolean
+
+    """
+    tap = cls._GetInstanceNICTap(instance_name, nic)
+    env = hv_base.CreateNICEnv(instance_name, nic, tap)
+    arg2 = str(only_local).lower()
+    result = utils.RunCmd([pathutils.KVM_IFDOWN, tap, arg2], env=env)
+    if result.failed:
+      raise errors.HypervisorError("Failed to unconfigure interface %s: %s;"
+                                   " network configuration script output: %s" %
+                                   (tap, result.fail_reason, result.output))
 
   @classmethod
   def _SetProcessAffinity(cls, process_id, cpus):
@@ -1130,6 +1189,11 @@ class KVMHypervisor(hv_base.BaseHypervisor):
 
       drive_uri = _GetDriveURI(cfdev, link_name, uri)
 
+      # For ext we allow overriding disk_cache hypervisor params per disk
+      cache = cfdev.params.get("cache", None)
+      if cache:
+        cache_val = ",cache=%s" % cache
+
       drive_val = "file=%s,format=raw%s%s%s%s" % \
                   (drive_uri, if_val, boot_val, cache_val, aio_val)
 
@@ -1144,6 +1208,20 @@ class KVMHypervisor(hv_base.BaseHypervisor):
         dev_val = _GenerateDeviceHVInfoStr(cfdev.hvinfo)
         dev_val += ",drive=%s" % kvm_devid
         dev_opts.extend(["-device", dev_val])
+
+      # TODO: export disk geometry in IDISK_PARAMS
+      heads = cfdev.params.get('heads', None)
+      secs = cfdev.params.get('secs', None)
+      if heads and secs:
+        nr_sectors = cfdev.size * 1024 * 1024 / 512
+        cyls = nr_sectors / (int(heads) * int(secs))
+        if cyls > 16383:
+          cyls = 16383
+        elif cyls < 2:
+          cyls = 2
+        if cyls and heads and secs:
+          drive_val += (",cyls=%d,heads=%d,secs=%d" %
+                        (cyls, int(heads), int(secs)))
 
       dev_opts.extend(["-drive", drive_val])
 
@@ -1266,6 +1344,10 @@ class KVMHypervisor(hv_base.BaseHypervisor):
 
     kvm_cmd.extend(["-balloon", "virtio"])
     kvm_cmd.extend(["-daemonize"])
+    # logfile for qemu
+    qemu_logfile = utils.PathJoin(pathutils.LOG_KVM_DIR,
+                                  "%s.log" % instance.name)
+    kvm_cmd.extend(["-D", qemu_logfile])
     if not instance.hvparams[constants.HV_ACPI]:
       kvm_cmd.extend(["-no-acpi"])
     if instance.hvparams[constants.HV_REBOOT_BEHAVIOR] == \
@@ -1578,12 +1660,13 @@ class KVMHypervisor(hv_base.BaseHypervisor):
     except EnvironmentError, err:
       raise errors.HypervisorError("Failed to save KVM runtime file: %s" % err)
 
-  def _ReadKVMRuntime(self, instance_name):
+  @classmethod
+  def _ReadKVMRuntime(cls, instance_name):
     """Read an instance's KVM runtime
 
     """
     try:
-      file_content = utils.ReadFile(self._InstanceKVMRuntime(instance_name))
+      file_content = utils.ReadFile(cls._InstanceKVMRuntime(instance_name))
     except EnvironmentError, err:
       raise errors.HypervisorError("Failed to load KVM runtime file: %s" % err)
     return file_content
@@ -1602,12 +1685,13 @@ class KVMHypervisor(hv_base.BaseHypervisor):
 
     self._WriteKVMRuntime(instance.name, serialized_form)
 
-  def _LoadKVMRuntime(self, instance, serialized_runtime=None):
+  @classmethod
+  def _LoadKVMRuntime(cls, instance_name, serialized_runtime=None):
     """Load an instance's KVM runtime
 
     """
     if not serialized_runtime:
-      serialized_runtime = self._ReadKVMRuntime(instance.name)
+      serialized_runtime = cls._ReadKVMRuntime(instance_name)
 
     return _AnalyzeSerializedRuntime(serialized_runtime)
 
@@ -1901,8 +1985,8 @@ class KVMHypervisor(hv_base.BaseHypervisor):
     utils.EnsureDirs([(self._InstanceNICDir(instance.name),
                      constants.RUN_DIRS_MODE)])
     for nic_seq, tap in enumerate(taps):
-      utils.WriteFile(self._InstanceNICFile(instance.name, nic_seq),
-                      data=tap)
+      nic = kvm_nics[nic_seq]
+      self._WriteInstanceNICFiles(instance.name, nic_seq, nic, tap)
 
     if vnc_pwd:
       change_cmd = "change vnc password %s" % vnc_pwd
@@ -2021,7 +2105,7 @@ class KVMHypervisor(hv_base.BaseHypervisor):
     @raise errors.HypervisorError: if one of the above applies
 
     """
-    runtime = self._LoadKVMRuntime(instance)
+    runtime = self._LoadKVMRuntime(instance.name)
     device_type = _DEVICE_TYPE[dev_type](runtime[2])
     if device_type not in _HOTPLUGGABLE_DEVICE_TYPES[dev_type]:
       msg = "Hotplug is not supported for device type %s" % device_type
@@ -2147,7 +2231,7 @@ class KVMHypervisor(hv_base.BaseHypervisor):
 
     """
     kvm_devid = _GenerateDeviceKVMId(dev_type, device)
-    runtime = self._LoadKVMRuntime(instance)
+    runtime = self._LoadKVMRuntime(instance.name)
     up_hvp = runtime[2]
     device_type = _DEVICE_TYPE[dev_type](up_hvp)
     bus_state = self._GetBusSlots(up_hvp, runtime)
@@ -2179,7 +2263,7 @@ class KVMHypervisor(hv_base.BaseHypervisor):
       (tap, tapfds, vhostfds) = OpenTap(features=features)
       self._ConfigureNIC(instance, seq, device, tap)
       self.qmp.HotAddNic(device, kvm_devid, tapfds, vhostfds, features)
-      utils.WriteFile(self._InstanceNICFile(instance.name, seq), data=tap)
+      self._WriteInstanceNICFiles(instance.name, seq, device, tap)
 
     self._VerifyHotplugCommand(instance, kvm_devid, True)
     # update relevant entries in runtime file
@@ -2196,7 +2280,7 @@ class KVMHypervisor(hv_base.BaseHypervisor):
     invokes the device-specific method.
 
     """
-    runtime = self._LoadKVMRuntime(instance)
+    runtime = self._LoadKVMRuntime(instance.name)
     entry = _GetExistingDeviceInfo(dev_type, device, runtime)
     kvm_device = _RUNTIME_DEVICE[dev_type](entry)
     kvm_devid = _GenerateDeviceKVMId(dev_type, kvm_device)
@@ -2207,7 +2291,8 @@ class KVMHypervisor(hv_base.BaseHypervisor):
       self._CallMonitorCommand(instance.name, command)
     elif dev_type == constants.HOTPLUG_TARGET_NIC:
       self.qmp.HotDelNic(kvm_devid)
-      utils.RemoveFile(self._InstanceNICFile(instance.name, seq))
+      self._UnconfigureNic(instance.name, kvm_device, False)
+      self._RemoveInstanceNICFiles(instance.name, seq, device)
     self._VerifyHotplugCommand(instance, kvm_devid, False)
     index = _DEVICE_RUNTIME_INDEX[dev_type]
     runtime[index].remove(entry)
@@ -2323,6 +2408,15 @@ class KVMHypervisor(hv_base.BaseHypervisor):
     """
     self._StopInstance(instance, force, name=name, timeout=timeout)
 
+  @classmethod
+  def _UnconfigureInstanceNICs(cls, instance_name, info=None):
+    """Get runtime NICs of an instance and unconfigure them
+
+    """
+    _, kvm_nics, __, ___ = cls._LoadKVMRuntime(instance_name, info)
+    for nic in kvm_nics:
+      cls._UnconfigureNic(instance_name, nic)
+
   def CleanupInstance(self, instance_name):
     """Cleanup after a stopped instance
 
@@ -2346,7 +2440,7 @@ class KVMHypervisor(hv_base.BaseHypervisor):
                                    " not running" % instance.name)
     # StopInstance will delete the saved KVM runtime so:
     # ...first load it...
-    kvm_runtime = self._LoadKVMRuntime(instance)
+    kvm_runtime = self._LoadKVMRuntime(instance.name)
     # ...now we can safely call StopInstance...
     if not self.StopInstance(instance):
       self.StopInstance(instance, force=True)
@@ -2378,7 +2472,7 @@ class KVMHypervisor(hv_base.BaseHypervisor):
     @param target: target host (usually ip), on this node
 
     """
-    kvm_runtime = self._LoadKVMRuntime(instance, serialized_runtime=info)
+    kvm_runtime = self._LoadKVMRuntime(instance.name, serialized_runtime=info)
     incoming_address = (target, instance.hvparams[constants.HV_MIGRATION_PORT])
     kvmpath = instance.hvparams[constants.HV_KVM_PATH]
     kvmhelp = self._GetKVMOutput(kvmpath, self._KVMOPT_HELP)
@@ -2395,7 +2489,7 @@ class KVMHypervisor(hv_base.BaseHypervisor):
 
     """
     if success:
-      kvm_runtime = self._LoadKVMRuntime(instance, serialized_runtime=info)
+      kvm_runtime = self._LoadKVMRuntime(instance.name, serialized_runtime=info)
       kvm_nics = kvm_runtime[1]
 
       for nic_seq, nic in enumerate(kvm_nics):
@@ -2415,6 +2509,7 @@ class KVMHypervisor(hv_base.BaseHypervisor):
 
       self._WriteKVMRuntime(instance.name, info)
     else:
+      self._UnconfigureInstanceNICs(instance.name, info)
       self.StopInstance(instance, force=True)
 
   def MigrateInstance(self, cluster_name, instance, target, live):

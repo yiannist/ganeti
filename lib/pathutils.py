@@ -63,6 +63,7 @@ DAEMON_UTIL = _constants.PKGLIBDIR + "/daemon-util"
 IMPORT_EXPORT_DAEMON = _constants.PKGLIBDIR + "/import-export"
 KVM_CONSOLE_WRAPPER = _constants.PKGLIBDIR + "/tools/kvm-console-wrapper"
 KVM_IFUP = _constants.PKGLIBDIR + "/kvm-ifup"
+KVM_IFDOWN = _constants.PKGLIBDIR + "/kvm-ifdown"
 PREPARE_NODE_JOIN = _constants.PKGLIBDIR + "/prepare-node-join"
 SSH_UPDATE = _constants.PKGLIBDIR + "/ssh-update"
 NODE_DAEMON_SETUP = _constants.PKGLIBDIR + "/node-daemon-setup"
@@ -164,6 +165,8 @@ LOG_OS_DIR = LOG_DIR + "/os"
 LOG_ES_DIR = LOG_DIR + "/extstorage"
 #: Directory for storing Xen config files after failed instance starts
 LOG_XEN_DIR = LOG_DIR + "/xen"
+# Directory to store the output of kvm instances
+LOG_KVM_DIR = LOG_DIR + "/kvm"
 
 # Job queue paths
 JOB_QUEUE_LOCK_FILE = QUEUE_DIR + "/lock"

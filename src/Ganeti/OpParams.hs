@@ -48,9 +48,11 @@ module Ganeti.OpParams
   , DiskAccess(..)
   , INicParams(..)
   , IDiskParams(..)
+  , ISnapParams(..)
   , RecreateDisksInfo(..)
   , DdmOldChanges(..)
   , SetParamsMods(..)
+  , SnapParams(..)
   , ExportTarget(..)
   , pInstanceName
   , pInstallImage
@@ -112,8 +114,10 @@ module Ganeti.OpParams
   , pIgnoreIpolicy
   , pHotplug
   , pHotplugIfPossible
+  , pKeepDisks
   , pAllowRuntimeChgs
   , pInstDisks
+  , pInstSnaps
   , pDiskTemplate
   , pOptDiskTemplate
   , pExtParams
@@ -415,6 +419,12 @@ $(buildObject "IDiskParams" "idisk"
 
 deriving instance Ord IDiskParams
 
+-- | Disk snapshot definition.
+$(buildObject "ISnapParams" "idisk"
+  [ simpleField C.idiskSnapshotName [t| NonEmptyString |]])
+
+deriving instance Ord ISnapParams
+
 -- | Disk changes type for OpInstanceRecreateDisks. This is a bit
 -- strange, because the type in Python is something like Either
 -- [DiskIndex] [DiskChanges], but we can't represent the type of an
@@ -484,6 +494,25 @@ instance (JSON a) => JSON (SetParamsMods a) where
   showJSON (SetParamsNew v) = showJSON v
   showJSON (SetParamsNewName v) = showJSON v
   readJSON = readSetParams
+
+-- | Instance snapshot params
+data SnapParams a
+  = SnapParamsEmpty
+  | SnapParamsInt (NonEmpty (Int, a))
+  | SnapParamsStr (NonEmpty (String, a))
+    deriving (Eq, Show, Ord)
+
+readSnapParams :: (JSON a) => JSValue -> Text.JSON.Result (SnapParams a)
+readSnapParams (JSArray []) = return SnapParamsEmpty
+readSnapParams v =
+  liftM SnapParamsInt (readJSON v)
+  `mplus` liftM SnapParamsStr (readJSON v)
+
+instance (JSON a) => JSON (SnapParams a) where
+  showJSON SnapParamsEmpty = showJSON ()
+  showJSON (SnapParamsInt v) = showJSON v
+  showJSON (SnapParamsStr v) = showJSON v
+  readJSON = readSnapParams
 
 -- | Custom type for target_node parameter of OpBackupExport, which
 -- varies depending on mode. FIXME: this uses an [JSValue] since
@@ -603,6 +632,10 @@ pInstances =
   defaultField [| [] |] $
   simpleField "instances" [t| [NonEmptyString] |]
 
+-- | Whether to remove disks.
+pKeepDisks :: Field
+pKeepDisks = defaultFalse "keep_disks"
+
 pOutputFields :: Field
 pOutputFields =
   withDoc "Selected output fields" $
@@ -612,6 +645,12 @@ pName :: Field
 pName =
   withDoc "A generic name" $
   simpleField "name" [t| NonEmptyString |]
+
+-- | List of instance snaps.
+pInstSnaps :: Field
+pInstSnaps =
+  renameField "instSnaps" $
+  simpleField "disks" [t| SnapParams ISnapParams |]
 
 pForce :: Field
 pForce =
