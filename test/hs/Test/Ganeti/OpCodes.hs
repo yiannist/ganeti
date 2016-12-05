@@ -423,6 +423,8 @@ instance Arbitrary OpCodes.OpCode where
           <*> genMaybe genNameNE              -- os_name
           <*> pure emptyJSObject              -- osparams
           <*> genMaybe arbitraryPrivateJSObj  -- osparams_private
+          <*> arbitrary                       -- clear_osparams
+          <*> arbitrary                       -- clear_osparams_private
           <*> arbitrary                       -- wait_for_sync
           <*> arbitrary                       -- offline
           <*> arbitrary                       -- conflicts_check

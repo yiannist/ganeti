@@ -698,6 +698,8 @@ $(genOpCode "OpCode"
      , pOsNameChange
      , pInstOsParams
      , pInstOsParamsPrivate
+     , pInstOsParamsClear
+     , pInstOsParamsPrivateClear
      , pWaitForSync
      , withDoc "Whether to mark the instance as offline" pOffline
      , pIpConflictsCheck
