@@ -358,6 +358,8 @@ instance Arbitrary OpCodes.OpCode where
           arbitrary <*> genMaybe genNameNE <*> genMaybe (pure emptyJSObject)
           <*> genMaybe arbitraryPrivateJSObj <*> genMaybe arbitrarySecretJSObj
           <*> arbitrary <*> arbitrary
+          <*> genMaybe (listOf genPrintableAsciiString)
+          <*> genMaybe (listOf genPrintableAsciiString)
       "OP_INSTANCE_REMOVE" ->
         OpCodes.OpInstanceRemove <$> genFQDN <*> return Nothing <*>
           arbitrary <*> arbitrary
