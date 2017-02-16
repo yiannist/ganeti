@@ -1,3 +1,30 @@
+snf-ganeti (2.16.0+2017.09.28.12.28-1) jessie; urgency=low
+
+  * Official Ganeti 2.16 plus custom patches:
+    + cache: Pass disk geometry in KVM command
+    + cache: Override disk_cache hvp with disk param in EXT
+    + ext: Do not remove disks if --keep-disks and DT_EXT
+    + snap: Make disk name available on snapshot
+    + snap: LUInstanceSnapshot for the EXT disk template
+    + cfgupgrade: Change base64 encoded networks to 01 bitarrays
+    + ifdown: Support ifdown script for the KVM hypervisor
+  * Include:
+    + Disk I/O limits allow us to control the amount of I/O... (atta/ganeti 2ffdbb5)
+    + Move postcopy migration logic to cmdlib (#1263)
+    + Implement basic automatic KVM postcopy migration (#1262)
+    + Disable CPU pinning on migration with cpu_mask=all (#1261)
+    + Allow IPv6 for vnc_bind_address (#1257)
+    + kvm: Make use of the -D option (#45)
+  * Remove obsolete patches:
+    + Disable CheckFileStoragePathNotWritable test
+    + Upgrade old runtime files
+    + Remove deprecated physical_id from runtime files
+    + Revert "Fix query mechanism wrt networks and vlans"
+  * Rebase on latest Ganeti 2.16:
+    + hv_xen: generate correct type for paravirtualized nic (#57)
+
+ -- Yiannis Tsiouris <tsiou@grnet.gr>  Thu, 28 Sep 2017 12:28:29 +0300
+
 ganeti (2.15.1-1) unstable; urgency=medium
 
   * New upstream bugfix release: 
