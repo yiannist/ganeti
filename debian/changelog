@@ -1,4 +1,4 @@
-snf-ganeti (2.16.0~rc1+arr-1) unstable; urgency=low
+snf-ganeti (2.16.0~rc1+2017.05.15.15.44-1) jessie; urgency=low
 
   * Official Ganeti 2.16 plus custom patches:
     + Support ifdown script for the KVM hypervisor
@@ -9,7 +9,7 @@ snf-ganeti (2.16.0~rc1+arr-1) unstable; urgency=low
     + Add --keep-disks option
     + Pass disk geometry in KVM command
 
- -- Dimitris Aragiorgis <dimitris.aragiorgis@gmail.com>  Tue, 10 Nov 2015 17:01:00 +0300
+ -- Yiannis Tsiouris <tsiou@grnet.gr>  Mon, 15 May 2017 15:44:49 +0300
 
 ganeti (2.15.1-1) unstable; urgency=medium
 
