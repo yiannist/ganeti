@@ -616,5 +616,237 @@ class TestKvmRuntime(testutils.GanetiTestCase):
     self.mocks['run_cmd'].side_effect = RunCmd
     hypervisor.StartInstance(self.instance, [], False)
 
+
+class TestKvmCpuPinning(testutils.GanetiTestCase):
+  def setUp(self):
+    super(TestKvmCpuPinning, self).setUp()
+    kvm_class = 'ganeti.hypervisor.hv_kvm.KVMHypervisor'
+    self.MockOut('qmp', mock.patch('ganeti.hypervisor.hv_kvm.QmpConnection'))
+    self.MockOut('run_cmd', mock.patch('ganeti.utils.RunCmd'))
+    self.MockOut('ensure_dirs', mock.patch('ganeti.utils.EnsureDirs'))
+    self.MockOut('write_file', mock.patch('ganeti.utils.WriteFile'))
+    self.MockOut(mock.patch(kvm_class + '._InstancePidAlive',
+                            return_value=(True, 1371, True)))
+    self.MockOut(mock.patch(kvm_class + '._GetVcpuThreadIds',
+                            return_value=[1, 3, 5, 2, 4, 0 ]))
+    self.params = constants.HVC_DEFAULTS[constants.HT_KVM].copy()
+
+  def testCpuPinningDefault(self):
+    if hv_kvm.psutil is None:
+      # FIXME: switch to unittest.skip once python 2.6 is deprecated
+      print "skipped 'psutil Python package not found'"
+      return
+    mock_process = mock.MagicMock()
+    cpu_mask = self.params['cpu_mask']
+    worker_cpu_mask = self.params['worker_cpu_mask']
+    hypervisor = hv_kvm.KVMHypervisor()
+    with nested(mock.patch('psutil.Process', return_value=mock_process),
+                mock.patch('psutil.cpu_count', return_value=1237)):
+      hypervisor._ExecuteCpuAffinity('test_instance', cpu_mask, worker_cpu_mask)
+
+    self.assertEqual(mock_process.set_cpu_affinity.call_count, 1)
+    self.assertEqual(mock_process.set_cpu_affinity.call_args_list[0],
+                     mock.call(range(0,1237)))
+
+  def testCpuPinningPerVcpu(self):
+    if hv_kvm.psutil is None:
+      # FIXME: switch to unittest.skip once python 2.6 is deprecated
+      print "skipped 'psutil Python package not found'"
+      return
+    mock_process = mock.MagicMock()
+    mock_process.set_cpu_affinity = mock.MagicMock()
+    mock_process.set_cpu_affinity().return_value = True
+    mock_process.get_children.return_value = []
+    mock_process.reset_mock()
+
+    cpu_mask = "1:2:4:5:10:15-17"
+    worker_cpu_mask = self.params['worker_cpu_mask']
+    hypervisor = hv_kvm.KVMHypervisor()
+
+    # This is necessary so that it provides the same object each time instead of
+    # overwriting it each time.
+    def get_mock_process(unused_pid):
+      return mock_process
+
+    with nested(mock.patch('psutil.Process', get_mock_process),
+                mock.patch('psutil.cpu_count', return_value=1237)):
+      hypervisor._ExecuteCpuAffinity('test_instance', cpu_mask, worker_cpu_mask)
+      self.assertEqual(mock_process.set_cpu_affinity.call_count, 7)
+      self.assertEqual(mock_process.set_cpu_affinity.call_args_list[0],
+                       mock.call(range(0,1237)))
+      self.assertEqual(mock_process.set_cpu_affinity.call_args_list[6],
+                       mock.call([15, 16, 17]))
+
+  def testCpuPinningEntireInstance(self):
+    if hv_kvm.psutil is None:
+      # FIXME: switch to unittest.skip once python 2.6 is deprecated
+      print "skipped 'psutil Python package not found'"
+      return
+    mock_process = mock.MagicMock()
+    mock_process.set_cpu_affinity = mock.MagicMock()
+    mock_process.set_cpu_affinity().return_value = True
+    mock_process.get_children.return_value = []
+    mock_process.reset_mock()
+
+    cpu_mask = "4"
+    worker_cpu_mask = "5"
+    hypervisor = hv_kvm.KVMHypervisor()
+
+    def get_mock_process(unused_pid):
+      return mock_process
+
+    with mock.patch('psutil.Process', get_mock_process):
+      hypervisor._ExecuteCpuAffinity('test_instance', cpu_mask, worker_cpu_mask)
+      self.assertEqual(mock_process.set_cpu_affinity.call_count, 7)
+      self.assertEqual(mock_process.set_cpu_affinity.call_args_list[0],
+                       mock.call([5]))
+      self.assertEqual(mock_process.set_cpu_affinity.call_args_list[1],
+                       mock.call([4]))
+
+class TestPostcopyAfterPrecopy(testutils.GanetiTestCase):
+  def setUp(self):
+    super(TestPostcopyAfterPrecopy, self).setUp()
+    kvm_class = 'ganeti.hypervisor.hv_kvm.KVMHypervisor'
+    self.MockOut('qmp', mock.patch('ganeti.hypervisor.hv_kvm.QmpConnection'))
+    self.MockOut('run_cmd', mock.patch('ganeti.utils.RunCmd'))
+    self.MockOut('ensure_dirs', mock.patch('ganeti.utils.EnsureDirs'))
+    self.MockOut('write_file', mock.patch('ganeti.utils.WriteFile'))
+    self.params = constants.HVC_DEFAULTS[constants.HT_KVM].copy()
+
+  def _TestPostcopyAfterPrecopy(self, runcmd, postcopy_started_goal):
+    hypervisor = hv_kvm.KVMHypervisor()
+    self.iteration = 0
+    self.postcopy_started = False
+
+    def runcmd_mock(cmd, env=None, output=None, cwd="/", reset_env=False,
+           interactive=False, timeout=None, noclose_fds=None,
+           input_fd=None, postfork_fn=None):
+      res = utils.RunResult(0, None, '', '', cmd, None, None)
+      if not self.postcopy_started and cmd.find('migrate_start_postcopy') != -1:
+        self.postcopy_started = True
+        res.stdout = ('migrate_postcopy_start\n'
+                      '(qemu) ')
+      return runcmd(cmd, res)
+
+    with mock.patch('ganeti.utils.RunCmd', runcmd_mock):
+      instance = mock.MagicMock()
+      instance.name = 'example.instance'
+      hypervisor._PostcopyAfterPrecopy(instance)
+      self.assertEqual(self.postcopy_started, postcopy_started_goal)
+
+  def testNormal(self):
+    def runcmd_normal(cmd, res):
+      res = utils.RunResult(0, None, '', '', cmd, None, None)
+      if cmd.find('info migrate') != -1:
+        self.iteration += 1
+        res.stdout = (
+            'QEMU 2.5.0 monitor - type \'help\' for more information\n'
+            '(qemu) info migrate\n'
+            'capabilities: xbzrle: off rdma-pin-all: off auto-converge: on'
+            'zero-blocks: off compress: off events: off x-postcopy-ram: on \n'
+            'Migration status: active\n'
+            'skipped: 0 pages\n'
+            'dirty sync count: %i\n'
+            '(qemu) ' % self.iteration
+          )
+      return res
+
+    self._TestPostcopyAfterPrecopy(runcmd_normal, True)
+
+  def testEmptyResponses(self):
+    def runcmd_empty_responses(cmd, res):
+      res = utils.RunResult(0, None, '', '', cmd, None, None)
+      if cmd.find('info migrate') != -1:
+        self.iteration += 1
+        if self.iteration < 3:
+          res.stdout = (
+              'QEMU 2.5.0 monitor - type \'help\' for more information\n'
+              '(qemu) info migrate\n'
+              '(qemu) '
+            )
+        else:
+          res.stdout = (
+              'QEMU 2.5.0 monitor - type \'help\' for more information\n'
+              '(qemu) info migrate\n'
+              'capabilities: xbzrle: off rdma-pin-all: off auto-converge: on'
+              'zero-blocks: off compress: off events: off x-postcopy-ram: on \n'
+              'Migration status: active\n'
+              'skipped: 0 pages\n'
+              'dirty sync count: %i\n'
+              '(qemu) ' % self.iteration
+            )
+      return res
+    self._TestPostcopyAfterPrecopy(runcmd_empty_responses, True)
+
+  def testMonitorRemoved(self):
+    def runcmd_monitor_removed(cmd, res):
+      res = utils.RunResult(0, None, '', '', cmd, None, None)
+      if cmd.find('info migrate') != -1:
+        self.iteration += 1
+        if self.iteration < 3:
+          res.stdout = (
+              'QEMU 2.5.0 monitor - type \'help\' for more information\n'
+              '(qemu) info migrate\n'
+              'capabilities: xbzrle: off rdma-pin-all: off auto-converge: on'
+              'zero-blocks: off compress: off events: off x-postcopy-ram: on \n'
+              'Migration status: active\n'
+              'skipped: 0 pages\n'
+              'dirty sync count: %i\n'
+              '(qemu) '
+            )
+        else:
+          res.stderr = ('2017/07/26 15:49:52 socat[105703] E connect(3, AF=1 '
+                        '"/var/run/ganeti/kvm-hypervisor/ctrl/example.instanc'
+                        'e.monitor", 85): No such file or directory')
+      return res
+    self._TestPostcopyAfterPrecopy(runcmd_monitor_removed, False)
+
+  def testMigrationFailed(self):
+    def runcmd_migration_failed(cmd, res):
+      res = utils.RunResult(0, None, '', '', cmd, None, None)
+      if cmd.find('info migrate') != -1:
+        self.iteration += 1
+        if self.iteration < 3:
+          res.stdout = (
+              'QEMU 2.5.0 monitor - type \'help\' for more information\n'
+              '(qemu) info migrate\n'
+              'capabilities: xbzrle: off rdma-pin-all: off auto-converge: on'
+              'zero-blocks: off compress: off events: off x-postcopy-ram: on \n'
+              'Migration status: active\n'
+              'skipped: 0 pages\n'
+              'dirty sync count: %i\n'
+              '(qemu) '
+            )
+        else:
+          res.stdout = (
+              'QEMU 2.5.0 monitor - type \'help\' for more information\n'
+              '(qemu) info migrate\n'
+              'capabilities: xbzrle: off rdma-pin-all: off auto-converge: on'
+              'zero-blocks: off compress: off events: off x-postcopy-ram: on \n'
+              'Migration status: failed\n'
+              'skipped: 0 pages\n'
+              'dirty sync count: %i\n'
+              '(qemu) '
+            )
+      return res
+    self._TestPostcopyAfterPrecopy(runcmd_migration_failed, False)
+
+  def testAlreadyInPostcopy(self):
+    def runcmd_already_in_postcopy(cmd, res):
+      res = utils.RunResult(0, None, '', '', cmd, None, None)
+      if cmd.find('info migrate') != -1:
+        res.stdout = (
+            'QEMU 2.5.0 monitor - type \'help\' for more information\n'
+            '(qemu) info migrate\n'
+            'capabilities: xbzrle: off rdma-pin-all: off auto-converge: on'
+            'zero-blocks: off compress: off events: off x-postcopy-ram: on \n'
+            'Migration status: postcopy-active\n'
+            'skipped: 0 pages\n'
+            'dirty sync count: %i\n'
+            '(qemu) '
+          )
+      return res
+    self._TestPostcopyAfterPrecopy(runcmd_already_in_postcopy, False)
+
 if __name__ == "__main__":
   testutils.GanetiTestProgram()
