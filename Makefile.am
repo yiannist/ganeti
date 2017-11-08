@@ -1930,7 +1930,6 @@ python_tests = \
 	test/py/cmdlib/test_unittest.py \
 	test/py/cfgupgrade_unittest.py \
 	test/py/docs_unittest.py \
-	test/py/ganeti.asyncnotifier_unittest.py \
 	test/py/ganeti.backend_unittest-runasroot.py \
 	test/py/ganeti.backend_unittest.py \
 	test/py/ganeti.bootstrap_unittest.py \
