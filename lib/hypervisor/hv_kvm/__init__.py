@@ -2338,7 +2338,7 @@ class KVMHypervisor(hv_base.BaseHypervisor):
       self._CallMonitorCommand(instance.name, command)
     elif dev_type == constants.HOTPLUG_TARGET_NIC:
       self.qmp.HotDelNic(kvm_devid)
-      self._UnconfigureNic(instance.name, kvm_device, False)
+      self._UnconfigureNIC(instance.name, kvm_device, False)
       self._RemoveInstanceNICFiles(instance.name, seq, device)
     self._VerifyHotplugCommand(instance, kvm_devid, False)
     index = _DEVICE_RUNTIME_INDEX[dev_type]
